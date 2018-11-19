@@ -28,17 +28,19 @@ from torch.autograd import Variable
 # In[7]:
 
 #N_STEPS = 5
-SEED = 1
+ENVSEED = 1
 N_GAMES = 1000
-N_ACTIONS = 2
-N_INPUTS = 4
+envName = "Pendulum-v0"
+DIM_ACTIONS = 1                 # dim of actions
+R_ACTIONS = 2.                  # action can range between +- R_ACTIONS
+N_INPUTS = 3                    # dim of env state
 
 states = []
 actions = []
 rewards = []
 
-env = gym.make('CartPole-v0')
-env.seed(SEED)
+env = gym.make(envName)
+env.seed(ENVSEED)
 
 
 # In[8]:
@@ -51,7 +53,7 @@ class ActorCritic(nn.Module):
         self.linear2 = nn.Linear(64, 128)
         self.linear3 = nn.Linear(128, 64)
         
-        self.actor = nn.Linear(64, N_ACTIONS)
+        self.actor = nn.Linear(64, DIM_ACTIONS)
         self.critic = nn.Linear(64, 1)
         self.predictor = nn.Linear(64, N_INPUTS)
     
@@ -67,20 +69,25 @@ class ActorCritic(nn.Module):
         
         return x
     
-    def get_action_probs(self, x):
+    def get_action(self, x):
         # self(x) calls nn.Module's __call__()
         x = self(x)
-        action_probs = F.softmax(self.actor(x))
-        return action_probs
+        #action = F.softmax(self.actor(x))
+        action = self.actor(x) + np.random.normal(0.,R_ACTIONS/5.,size=(1))
+        action = torch.clamp(action,-R_ACTIONS,R_ACTIONS)
+        return action
     
     def evaluate_actions(self, x):
+        # self(x) calls nn.Module's __call__()
         x = self(x)
-        action_probs = F.softmax(self.actor(x))
+        #action_probs = F.softmax(self.actor(x))
+        action = self.actor(x) + np.random.normal(0.,R_ACTIONS/5.,size=(1))
+        action = torch.clamp(action,-R_ACTIONS,R_ACTIONS)
         state_values = self.critic(x)
         next_state = self.predictor(x)
         
-        return action_probs, state_values, next_state
-          
+        return action, state_values, next_state
+
 
 
 # In[9]:
@@ -89,17 +96,15 @@ class ActorCritic(nn.Module):
 def test_model(model):
     score = 0
     done = False
-    env = gym.make('CartPole-v0')
+    env = gym.make(envName)
     state = env.reset()
     global action_probs
     while not done:
         score += 1
         s = torch.from_numpy(state).float().unsqueeze(0)
         
-        action_probs = model.get_action_probs(Variable(s))
-        
-        _, action_index = action_probs.max(1)
-        action = action_index.data[0] 
+        action = model.get_action(Variable(s))
+        action = action.data[0] 
         next_state, reward, done, thing = env.step(action.numpy())
         state = next_state
         
@@ -136,8 +141,7 @@ for i in range(N_GAMES):
     while not done:
         s = torch.from_numpy(state).float().unsqueeze(0)
         
-        action_probs = model.get_action_probs(Variable(s))
-        action = action_probs.multinomial(num_samples=1)[0][0]
+        action = model.get_action(Variable(s))
         next_state, reward, done, _ = env.step(action.numpy())
         
         states.append(state)
@@ -180,11 +184,11 @@ for i in range(N_GAMES):
         
         next_state_pred_loss = (ss[1:] - next_states[:-1]).pow(2).mean()
 
-        action_log_probs = action_probs.log() 
+        #action_log_probs = action_probs.log() 
 
         advantages = Variable(torch.FloatTensor(rewards)).unsqueeze(1) - state_values
 
-        entropy = (action_probs * action_log_probs).sum(1).mean()
+        #entropy = (action_probs * action_log_probs).sum(1).mean()
 
         a = Variable(torch.LongTensor(actions).view(-1,1))
 
