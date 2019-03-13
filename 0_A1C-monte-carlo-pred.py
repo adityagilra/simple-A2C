@@ -122,7 +122,7 @@ def weights_init(m):
     if type(m) == nn.Linear:
         torch.nn.init.xavier_uniform(m.weight.data)
 
-def calc_actual_state_values(rewards, dones):
+def calc_actual_state_values_3(rewards, dones):
     R = []
     rewards.reverse()
 
@@ -147,6 +147,21 @@ def calc_actual_state_values(rewards, dones):
     R.reverse()
     state_values_true = Variable(torch.FloatTensor(R)).unsqueeze(1)
     
+    return state_values_true
+
+def calc_actual_state_values_0(rewards):
+    ##### different way of calculating value, see also calc_actual_state_values() function
+    R = []
+    rr = rewards
+    rr.reverse()
+    next_return = -30 #if len(rewards) < 200 else 1 # unnecessary now, should just be 0
+    # punish failure hard
+    for r in range(len(rr)):
+       this_return = rr[r] + next_return * .9
+       R.append(this_return)
+       next_return = this_return
+    R.reverse()
+    state_values_true = Variable(torch.FloatTensor(R)).unsqueeze(1)
     return state_values_true
 
 scores = np.zeros((N_SEEDS,N_GAMES//20))
@@ -193,23 +208,11 @@ for SEEDi,SEED in enumerate(SEEDS):
             # Reflect phase
             #print("Training. Score was ", len(rewards))
 
-            rewards_orig = torch.tensor(rewards)
-            ###### Old way of calculating value, obsolete, see calc_actual_state_values() function
-            #R = []
-            #rr = rewards
-            #rr.reverse()
-            #next_return = -30 #if len(rewards) < 200 else 1 # unnecessary now, should just be 0
-            ## punish failure hard
-            #for r in range(len(rr)):
-            #    this_return = rr[r] + next_return * .9
-            #    R.append(this_return)
-            #    next_return = this_return
-            #R.reverse()
-            #rewards = R
-
-            # choose one of these -- old vs new method of calculating rewards and values
-            #state_values_true = Variable(torch.FloatTensor(rewards)).unsqueeze(1)
-            state_values_true = calc_actual_state_values(rewards, dones)
+            rewards_tensor = Variable(torch.FloatTensor(rewards))
+            rewards_tensor.requires_grad = True
+            # choose one of these -- this script 0 vs script 3 method of calculating rewards and values
+            state_values_true = calc_actual_state_values_0(rewards)
+            #state_values_true = calc_actual_state_values_3(rewards, dones)
             
             # taking only the last 20 states before failure. wow this really improves training
             """rewards = rewards[-20:]
@@ -237,13 +240,15 @@ for SEEDi,SEED in enumerate(SEEDS):
 
             action_gain = (chosen_action_log_probs * advantages).mean()
             
-            td_errors = (rewards_orig[:-1] + GAMMA*state_values_true[1:] - state_values_est[:-1])
+            td_errors = (rewards_tensor[:-1] + GAMMA*state_values_true[1:] - state_values_est[:-1])
             td_loss = td_errors.pow(2).mean()
+            reward_loss = - rewards_tensor.pow(2).mean()
 
             value_loss = advantages.pow(2).mean()
             
             #total_loss = td_loss/50.0
             total_loss = value_loss/50.0 - action_gain - 0.0001*entropy + next_state_pred_loss
+            #total_loss = reward_loss
             #total_loss = next_state_pred_loss
             #total_loss = - action_gain
 
